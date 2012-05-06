@@ -12,17 +12,22 @@ use Authen::SASL;
 #
 no warnings 'uninitialized';
 
+#
+# Merge this module with the FWS V2 
+#
+BEGIN { push @FWS::V2::ISA, 'FWS::V2::SocketLabs'; }
+
 =head1 NAME
 
 FWS::V2::SocketLabs - FrameWork Sites version 2 socketlabs.com SMTP integration
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 
 =head1 SYNOPSIS
@@ -30,10 +35,10 @@ our $VERSION = '0.01';
 This module will process all outgoing mail from FWS 2.0 though a socketlabs.com SMTP account.   Add the following to your FWS go.pl FWS parameter:
 
 	
-	my $fws = new FWS::V2( 	... all your settings 	=> values...,
+	my $fws = FWS::V2->new( %yourConfiguration,
 				sendMethod		=> 'socketlabs');
 
-Here is an example FWS independent process you can use as a starter to make your own customized FWS socketlabs process.   This will be appropriate to be added to a CRONTAB to run 'socketLabs.pl send' every minute or so and run 'socketLabs.pl audit' every hour or so.   This should be an appropriate setup for sending less than 500 an hour.   If you are sending more than that you should create a custom optimized process for your application.
+Here is an example FWS independent process you can use as a starter to make your own customized FWS socketlabs process.   This will be appropriate to be added to your CRONTAB to run 'socketLabs.pl send' every minute and run 'socketLabs.pl audit' every hour.   This will work fine if your sending less than 500 email an hour.   If you are sending more than that you should create a custom optimized script for your application based on what your trying to accomplish.
 
 Crontab entry:
 
@@ -49,15 +54,10 @@ socketLabs.pl:
 	# setup your FWS
 	#
 	use FWS::V2;
-	use FWS::V2::SocketLabs;
 
-	my $fws = new FWS::V2(%yourConfiguration);
-
-	#
-	# add SocketLabs
-	#
-	my $socketLabs = new FWS::V2::SocketLabs (fws   => $fws,
-       		                        mailingId       => 'unique',  # up to 8 characters of unique string
+	my $fws = FWS::V2->new(%yourConfiguration,
+       		                        
+			SocketLabs=>{	mailingId       => 'unique',  # up to 8 characters of unique string
        		                        port            => '2525',
                		                host            => 'smtp.socketlabs.com',
                        		        username        => 'user name for SMTP auth',
@@ -66,8 +66,13 @@ socketLabs.pl:
                		                apiURL          => 'https://api.socketlabs.com/v1',
                        		        apiAccountId    => 'from socket labs account',
 	                     		apiPassword     => 'from socket labs account',
-       					apiUsername     => 'from socket labs account');
+       					apiUsername     => 'from socket labs account'}
+			);
 
+	#
+	# add SocketLabs
+	#
+	$fws->registerPlugin('FWS::V2::SocketLabs');
 
 	#
 	# Add your site values
@@ -95,7 +100,7 @@ socketLabs.pl:
 		#	
 	        if ($arg eq 'send') {
 	                print "Runnning Process: ".$arg."\n\n";
-	                $socketLabs->processSocketLabsEmailQueue();
+	                $fws->SocketLabs_processQueue();
                 }
 
 		#
@@ -104,16 +109,16 @@ socketLabs.pl:
         	elsif ($arg eq 'audit') {
                		print "Runnning Process: ".$arg."\n\n";
                 	my @historyArray = $fws->queueHistoryArray(synced=>'0');
-                	if ($#historyArray > -1 ) { $socketLabs->processSocketLabsAudit() }
+                	if ($#historyArray > -1 ) { $fws->SocketLabs_processAudit() }
                 	else { print "No sync required\n\n" }
         	}
 	}
 	1;
 
 
-=head1 CONSTRUCTOR
+=head1 PLUGIN INITIALIZATION
 
-=head2 new
+=head2 pluginInit
 
 Create a socketLabs object with the configuration parameters.
 
@@ -129,7 +134,7 @@ Make sure this is Less than 8 characters.  If you use your socketLabs account fo
 
 =item * port
 
-Port 2525 should be good.  If not 25 would ba another appropriate port.
+Port 2525 should be good.  If not 25 would be another appropriate port.
 
 =item * host
 
@@ -137,11 +142,11 @@ Default is: smtp.socketlabs.com
 
 =item * username
 
-This is the username for the SMTP auth.  NOT the api!
+This is the username for the SMTP auth. 
 
 =item * password
 
-This is the password for the SMTP auth.  NOT the api!
+This is the password for the SMTP auth. 
 
 =item * queueFailLimit
 
@@ -167,68 +172,70 @@ Consult the socketlabs API documentation to know what this is.
 
 =cut
 
-sub new {
-        my $class = shift;
-        my $self = {@_};
+sub pluginInit {
+       my ($self,$fws) = @_;
 
-        #
-        # set the defaults
-        #
-        if ($self->{"port"} eq '')              { $self->{"port"}               = 2525 }
-        if ($self->{"host"} eq '')              { $self->{"host"}               = 'smtp.socketlabs.com' }
-        if ($self->{"apiURL"} eq '')            { $self->{"apiURL"}             = 'https://api.socketlabs.com/v1' }
-        if ($self->{"queueFailLimit"} eq '')    { $self->{"queueFailLimit"}     = 5 }
-
-        #
-        # add self
-        #
-        bless $self, $class;
-        return $self;
+	#
+	# set defaults
+	#
+	if ($fws->{"SocketLabs"}->{"port"} eq '') {		$fws->{"SocketLabs"}->{"port"}               = 2525 }
+	if ($fws->{"SocketLabs"}->{"host"} eq '') {		$fws->{"SocketLabs"}->{"host"}               = 'smtp.socketlabs.com' }
+	if ($fws->{"SocketLabs"}->{"apiURL"} eq '') {		$fws->{"SocketLabs"}->{"apiURL"}             = 'https://api.socketlabs.com/v1' }
+	if ($fws->{"SocketLabs"}->{"queueFailLimit"} eq '') {	$fws->{"SocketLabs"}->{"queueFailLimit"}     = 5 }
+	
+	#
+	# update any $fws data
+	#
+       
+	#
+	# pass back our extended class
+	#
+	return $fws;
 }
 
-=head1 SUBROUTINES/METHODS
+=head1 EXTENDED METHODS
 
-=head2 processSocketLabsEmailQueue
+=head2 SocketLabs_processQueue
 
 Move through the FWS queue and send all email in the queue with the socketlabs type.
 
 =cut
 
-sub processSocketLabsEmailQueue {
+sub SocketLabs_processQueue {
         my ($self) = @_;
 
 	#
         # Get Items
 	#
-        my @queueArray = $self->{'fws'}->queueArray();
+        my @queueArray = $self->queueArray();
 	
 	#
-        # send each one via sendSocketLabsEmail
+        # send each one via SocketLabs_sendEmail
 	#
-        for my $i (0 .. $#queueArray) { $self->_sendSocketLabsEmail(%{$queueArray[$i]}) }
+        for my $i (0 .. $#queueArray) { $self->_SocketLabs_sendEmail(%{$queueArray[$i]}) }
 }
 
-=head2 processSocketLabsAudit
+=head2 SocketLabs_processAudit
 
 Audit all the socket labs success and fail messages and update FWS with the response.
 
 =cut
 
-sub processSocketLabsAudit {
+sub SocketLabs_processAudit {
         my ($self) = @_;
 
         #
         # Request Processed Messages from SocketLabs
         #
-        my @SLArray = $self->_postSocketLabs(	url          =>  $self->{'apiURL'},
+        my @SLArray = $self->_SocketLabs_post(	url          =>  $self->{'SocketLabs'}->{'apiURL'},
 		                                method       =>  "messagesProcessed",
-		                                account_id   =>  $self->{'apiAccountId'},
-		                                mailingId    =>  $self->{'mailingId'},
-		                                user         =>  $self->{'apiUsername'},
-		                                password     =>  $self->{'apiPassword'});
+		                                account_id   =>  $self->{'SocketLabs'}->{'apiAccountId'},
+		                                mailingId    =>  $self->{'SocketLabs'}->{'mailingId'},
+		                                user         =>  $self->{'SocketLabs'}->{'apiUsername'},
+		                                password     =>  $self->{'SocketLabs'}->{'apiPassword'});
 
         for my $i (0 .. $#SLArray) {
-                my %queueHash = $self->{'fws'}->queueHistoryHash(queueGUID=>$SLArray[$i]{'MessageId'});
+                my %queueHash = $self->queueHistoryHash(queueGUID=>$SLArray[$i]{'MessageId'});
 
                 if ($queueHash{'guid'} ne '' && $queueHash{'response'} eq '') {
                         $queueHash{'response'} = $SLArray[$i]{"Response"} . $SLArray[$i]{"Reason"};
@@ -236,11 +243,11 @@ sub processSocketLabsAudit {
                 	print $queueHash{'guid'}.": Synced!\n";
                         $queueHash{'synced'} = 1;
                         $queueHash{"response"} =~ s/\{CRLF\}/<br>/sg;
-                        $self->{'fws'}->saveQueueHistory(%queueHash);
+                        $self->saveQueueHistory(%queueHash);
                 }
         }
 
-        my @historyArray = $self->{'fws'}->queueHistoryArray(synced=>'0');
+        my @historyArray = $self->queueHistoryArray(synced=>'0');
         for my $i (0 .. $#historyArray) {
                 $historyArray[$i]{'failureCode'}++;
                 print $historyArray[$i]{'guid'}.': Not Synced  Try # '.$historyArray[$i]{'failureCode'}."\n";
@@ -248,35 +255,34 @@ sub processSocketLabsAudit {
                 #
                 # if this is tried to many times, just mark it as synced
                 #
-                if ($historyArray[$i]{'failureCode'} gt $self->{'queueFailLimit'}) {
+                if ($historyArray[$i]{'failureCode'} gt $self->{'SocketLabs'}->{'queueFailLimit'}) {
                 	print $historyArray[$i]{'guid'}.": Giving up, to many tries\n";
                         $historyArray[$i]{'synced'} = 1;
                         $historyArray[$i]{'response'} = 'Audit not available';
                 }
-                $self->{'fws'}->saveQueueHistory(%{$historyArray[$i]});
+                $self->saveQueueHistory(%{$historyArray[$i]});
         }
 
         #
         # Request Failed Messages from SocketLabs
         #
-        @SLArray = $self->_postSocketLabs(	 	url          =>  $self->{'apiURL'},
+        @SLArray = $self->_SocketLabs_post(	 	url          =>  $self->{'SocketLabs'}->{'apiURL'},
                                                         method       =>  "messagesFailed",
-                                                        account_id   =>  $self->{'apiAccountId'},
-                                                        mailingId    =>  $self->{'mailingId'},
-                                                        user         =>  $self->{'apiUsername'},
-                                                        password     =>  $self->{'apiPassword'});
+                                                        account_id   =>  $self->{'SocketLabs'}->{'apiAccountId'},
+                                                        mailingId    =>  $self->{'SocketLabs'}->{'mailingId'},
+                                                        user         =>  $self->{'SocketLabs'}->{'apiUsername'},
+                                                        password     =>  $self->{'SocketLabs'}->{'apiPassword'});
 
          for my $i (0 .. $#SLArray) {
-                my %queueHash = $self->{'fws'}->queueHistoryHash(queueGUID=>$SLArray[$i]{'MessageId'});
+                my %queueHash = $self->queueHistoryHash(queueGUID=>$SLArray[$i]{'MessageId'});
                 if ($queueHash{'guid'} ne '' && $queueHash{'response'} eq '') {
                         $queueHash{'response'} = $SLArray[$i]{"Response"} . $SLArray[$i]{"Reason"};
                         if ($SLArray[$i]{"Reason"} eq '')  { $queueHash{'success'} = 1 }
                 	print $queueHash{'guid'}.": Synced!\n";
                         $queueHash{'synced'} = 1;
                         $queueHash{"response"} =~ s/\{CRLF\}/<br>/sg;
-                        $self->{'fws'}->saveQueueHistory(%queueHash);
+                        $self->saveQueueHistory(%queueHash);
                 }
-
         }
 }
 
@@ -285,9 +291,9 @@ sub processSocketLabsAudit {
 
 
 ##########################################################
-# Net: do the actual send via socketLabs
+# Net: do the actual send via SocketLabs
 ##########################################################
-sub _sendSocketLabsEmail {
+sub _SocketLabs_sendEmail {
         my ($self,%paramHash) = @_;
 
         #
@@ -311,16 +317,16 @@ sub _sendSocketLabsEmail {
 	# queue at any given time.   And the context of this id, will only last a couple minutes
 	#
 	my $messageId = substr($paramHash{'guid'},0,20);
-        $msg->add('X-xsMailingId' => $self->{'mailingId'});
+        $msg->add('X-xsMailingId' => $self->{'SocketLabs'}->{'mailingId'});
         $msg->add('X-xsMessageId' => $messageId);
 
         #
         # send email
         #
-        eval { $msg->send('smtp',                       $self->{'host'},
-                                        Port      =>    $self->{'port'},
-                                        AuthUser  =>    $self->{'username'},
-                                        AuthPass  =>    $self->{'password'});
+        eval { $msg->send('smtp',                       $self->{'SocketLabs'}->{'host'},
+                                        Port      =>    $self->{'SocketLabs'}->{'port'},
+                                        AuthUser  =>    $self->{'SocketLabs'}->{'username'},
+                                        AuthPass  =>    $self->{'SocketLabs'}->{'password'});
         };
 
         my $errorCode = $@;
@@ -340,16 +346,15 @@ sub _sendSocketLabsEmail {
         my %historyHash                 = %paramHash;
         $historyHash{'queueGUID'}       = $messageId;
         $historyHash{'guid'}            = '';
-        $self->{'fws'}->saveQueueHistory(%historyHash);
+        $self->saveQueueHistory(%historyHash);
 
         #
         # Remove this item from the Queue
         #
-        $self->{'fws'}->deleteQueue(%paramHash);
+        $self->deleteQueue(%paramHash);
 }
 
-
-sub _postSocketLabs {
+sub _SocketLabs_post {
         my ($self,%paramHash) = @_;
 
         # Connection
@@ -463,7 +468,7 @@ sub _postSocketLabs {
         #
         # Connect to SocketLabs
         #
-        my $responseRef = $self->{'fws'}->HTTPRequest(
+        my $responseRef = $self->HTTPRequest(
                                         url      =>  $URL,
                                         user     =>  $user,
                                         password =>  $password);
